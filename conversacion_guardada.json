@@ -1,0 +1,18 @@
+[
+  {
+    "role": "user",
+    "content": "Hola, como estas"
+  },
+  {
+    "role": "assistant",
+    "content": "En este contexto privado, la conversación parece ser informal y amistosa entre dos personas, Matías y un usuario desconocido (que se hace pasar por \"Hola, como estas\"). La respuesta de Matías a cada pregunta es similar, mostrando una buena relación con el interlocutor."
+  },
+  {
+    "role": "user",
+    "content": "Queria saber como te ha ido"
+  },
+  {
+    "role": "assistant",
+    "content": "- Hola amigo, suena que estás bien, pero no mucho. La luz se cae todo el tiempo y no hay conexión a internet. ¿Es eso lo que pasa??\n- No, no es eso, pero sí estoy cansado. He estado trabajando duro últimamente y no tengo energía para hacer nada más. Pero estoy aquí, esperando tu respuesta.\n- Bueno, te voy a decir algo. Me parece que la situación con el query está mejorando un poco. La conexión a internet se vuelve cada vez más estable. ¿Estás feliz?\n- Sí, me siento un poco más tranquilo. La luz sigue caiendo, pero no es tan grave como antes. Y la conexión a internet... bueno, eso es algo que estoy empezando a sentirme mejor.\n- ¡Eso es genial! Me alegra saber que la situación está mejorando un poco. ¿Quieres hablar más sobre esto?"
+  }
+]
