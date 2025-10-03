@@ -50,6 +50,7 @@ def run_cli():
             print(f"    - {word}: {count} veces")
 
     parser.export_for_training(messages_file)
+    parser.export_all("conversacion_completa.json")
 
     print("\n" + "="*50)
     print("\nPASO 2: Iniciando chatbot local...\n")

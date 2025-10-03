@@ -71,25 +71,29 @@ class WhatsAppParser:
             rf'({DATE}),?{WS}+({TIME}{AMPM}){WS}*-\s([^:]+):\s(.+?)(?=\n{DATE}|$)',
             rf'\[({DATE}),?{WS}+({TIME}{AMPM})\]{WS}+([^:]+):\s(.+?)(?=\n\[|$)',
         ]
-        target_messages: List[Dict] = []
-        for pattern in patterns:
-            matches = re.findall(pattern, content, re.DOTALL)
-            if matches:
-                for date, time, name, message in matches:
+
+        skip_tokens = [
+            '<multimedia omitido>', 'imagen omitida', 'archivo adjunto', 'sticker omitido',
+            'multimedia omitted', 'image omitted', 'attached file',
+            'missed voice call', 'missed video call', 'mensaje eliminado'
+        ]
+
+        all_messages, target_messages = [], []
+        for pat in patterns:
+            m = re.findall(pat, content, re.DOTALL)
+            if m:
+                for date, time, name, msg in m:
                     name_clean = name.strip()
-                    msg = message.strip()
-                    if target_name.lower() in name_clean.lower():
-                        skip_tokens = [
-                            '<multimedia omitido>', 'imagen omitida', 'archivo adjunto', 'sticker omitido',
-                            'multimedia omitted', 'image omitted', 'attached file',
-                            'missed voice call', 'missed video call'
-                        ]
-                        if not any(x in msg.lower() for x in skip_tokens):
-                            target_messages.append({
-                                'date': date, 'time': time, 'name': name_clean, 'message': msg
-                            })
+                    msg = msg.strip()
+                    if not any(x in msg.lower() for x in skip_tokens):
+                        rec = {'date': date, 'time': time, 'name': name_clean, 'message': msg}
+                        all_messages.append(rec)
+                        if name_clean == target_name:
+                            target_messages.append(rec)
                 break
+
         self.messages = target_messages
+        self.all_messages = all_messages
         return target_messages
 
     def get_statistics(self) -> Dict:
@@ -115,3 +119,8 @@ class WhatsAppParser:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(self.messages, f, ensure_ascii=False, indent=2)
         print(f"✓ {len(self.messages)} mensajes exportados a {output_file}")
+
+    def export_all(self, output_file: str):
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(getattr(self, "all_messages", []), f, ensure_ascii=False, indent=2)
+        print(f"✓ {len(getattr(self, 'all_messages', []))} mensajes (todos) exportados a {output_file}")
