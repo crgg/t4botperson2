@@ -1,7 +1,0 @@
-# requirements.txt
-
-# Núcleo numérico para vectores/embeddings
-numpy>=1.24
-
-# Cliente Python para hablar con el daemon local de Ollama
-ollama>=0.2.0

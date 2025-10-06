@@ -7,7 +7,6 @@
 #  - Filtros anti “call-center”, anti regionalismos y anti small-talk
 #  - Guard de matemáticas básicas (respuestas correctas)
 #  - Limpieza dinámica de rótulos (Usuario:, Nombres:) y logística
-#  - 🔧 Config, prompts y umbrales separados en bot/config.py y bot/prompts.py
 # ——————————————————————————————————————————————————————————
 
 import os
@@ -21,18 +20,13 @@ from typing import List, Dict, Optional
 from collections import Counter, defaultdict
 
 import ollama
-from rag.embed import ensure_rag_index, retrieve_robust
-
-# NUEVO: config + prompts modularizados
-from bot.config import build_config, ChatbotConfig
-from bot.prompts import make_system_prompt, make_instruction
+from rag.embed import ensure_rag_index, retrieve_robust, EMBED_MODEL
 
 # Emojis comunes (rango Unicode amplio)
 EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]")
 
 # ——— utilidades de tokenización y patrones globales ———
 _TOKEN_RE = re.compile(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+", re.UNICODE)
-
 def _tok(s: str):
     return [t.lower() for t in _TOKEN_RE.findall(s or "")]
 
@@ -60,10 +54,8 @@ def _unique_names(records: List[Dict]) -> List[str]:
 
 
 class LocalChatbot:
-    def __init__(self, messages_file: str, model_name: str = "mistral", overrides: dict | None = None):
-        # 0) Config centralizada (modelo, generación, RAG, estilo)
-        self.cfg: ChatbotConfig = build_config(model_name=model_name, overrides=overrides)
-        self.model_name = self.cfg.model.model_name
+    def __init__(self, messages_file: str, model_name: str = "mistral"):
+        self.model_name = model_name
         self.messages_file = messages_file
         self.conversation_history: List[Dict] = []
 
@@ -76,18 +68,11 @@ class LocalChatbot:
         # Persona + emojis (definir ANTES del prompt)
         names = [m.get("name", "") for m in self.training_messages if m.get("name")]
         self.persona_name = Counter(names).most_common(1)[0][0] if names else "la persona"
-        self.style_emojis = self._top_emojis(
-            [m.get("message", "") for m in self.training_messages],
-            k=self.cfg.rag.top_emojis_k,
-        )
+        self.style_emojis = self._top_emojis([m.get("message", "") for m in self.training_messages])
 
-        # Config de estilo/longitud
-        self.default_mode = self.cfg.style.default_mode      # "short" | "long"
-        self.max_short_chars = self.cfg.style.max_short_chars
-
-        # Filtros/tono
-        self.banned_phrases = list(self.cfg.style.banned_phrases)
-        self.banned_slang = list(self.cfg.style.banned_slang)
+        # Config de estilo/longitud (puedes cambiar el modo por defecto a "short")
+        self.default_mode = "long"      # "short" (tipo WhatsApp) | "long" (tipo ChatGPT)
+        self.max_short_chars = 180
 
         # ----------------------------
         # 2) Infra: Ollama + embeddings
@@ -95,18 +80,10 @@ class LocalChatbot:
         self._check_ollama_and_models()
         self.corpus_texts, self.corpus_vecs, self.sparse_index = ensure_rag_index(self.training_messages)
 
-        # Mapa texto→lista de índices (por si hay duplicados en el corpus)
+        # Mapa texto→lista de índices (por si hay duplicados)
         self.text_to_indices = defaultdict(list)
         for i, t in enumerate(self.corpus_texts):
             self.text_to_indices[t].append(i)
-
-        # NUEVO: Mapa texto→[nombres que lo dijeron] para etiquetar en <privado>
-        self.text_to_names = defaultdict(list)
-        for m in self.training_messages:
-            t = (m.get("message") or "").strip()
-            n = (m.get("name") or "").strip()
-            if t:
-                self.text_to_names[t].append(n)
 
         # ----------------------------
         # 3) Few-shot + nombres participantes
@@ -125,10 +102,24 @@ class LocalChatbot:
         self.fewshot_messages = self._build_fewshot_messages()
         self.label_regex = self._compile_label_regex(self.participant_names)
 
+        # Frases “call-center” a filtrar (puedes ampliar esta lista)
+        self.banned_phrases = [
+            "¿Cómo puedo ayudarte hoy?",
+            "estoy aquí para ayudarte",
+            "aquí hay algunos ejemplos",
+        ]
+
+        # Regionalismos a evitar (no presentes en tu dataset o no deseados)
+        self.banned_slang = [
+            "chido", "wey", "órale",         # MX
+            "vale", "tío",                   # ES
+            "che", "pibe",                   # AR
+        ]
+
         # ----------------------------
-        # 4) Prompt del sistema (desde prompts.py)
+        # 4) Prompt del sistema (sin ejemplos incrustados)
         # ----------------------------
-        self.system_prompt = make_system_prompt(self.persona_name, self.style_emojis)
+        self.system_prompt = self._create_system_prompt()
 
     # ========= Helpers de inicialización =========
 
@@ -156,13 +147,13 @@ class LocalChatbot:
                 raise SystemExit("No pude conectar con el daemon de Ollama. Ejecuta 'ollama serve' en otra terminal.")
         # Asegura que existan los modelos (generación + embeddings)
         out = subprocess.run(["ollama", "list"], capture_output=True, text=True).stdout
-        for m in (self.model_name, self.cfg.model.embed_model):
+        for m in (self.model_name, EMBED_MODEL):
             if m not in out:
                 print(f"\nDescargando {m}...")
                 r = subprocess.run(["ollama", "pull", m])
                 if r.returncode != 0:
                     raise SystemExit(f"Fallo el pull de {m}. Revisa el daemon.")
-        print(f"✓ Ollama y modelos listos: {self.model_name} + {self.cfg.model.embed_model}")
+        print(f"✓ Ollama y modelos listos: {self.model_name} + {EMBED_MODEL}")
 
     def _pair_examples(self, all_messages: List[Dict], max_pairs: int = 6):
         """Crea pares (otro → persona) consecutivos, acotados en longitud, para few-shot."""
@@ -269,12 +260,8 @@ class LocalChatbot:
         offer_pats = [
             r"\b(llamarte|te llamo|te marco|puedo llamarte|dame tu n[uú]mero|n[uú]mero de tel[eé]fono)\b",
             r"\b(agend[ae]mos|agenda una llamada|programar una llamada)\b",
-            r"\b(te escribo por correo|te mando un mail|te env[ií]o un correo)\b",
-            r"\b(dame|p[aá]same|env[ií]ame|m[aá]ndame) (tu )?correo( electr[oó]nico)?\b",
-            r"\b(te\s*(mando|env[ií]o|paso)\s*(el|un|los)\s*(cv|curr[ií]culum|archivo|archivos))\b",
-            r"\b(llamar\\s*a\\s*(vtr|soporte|atenci[oó]n|cliente|proveedor(?:es)?))\b",
+            r"\b(te escribo por correo|te mando un mail|te envío un correo)\b",
         ]
-
         sentences = re.split(r"(?<=[\.\!\?…])\s+", text)
         kept = [s for s in sentences if not any(re.search(p, s, re.IGNORECASE) for p in offer_pats)]
         return " ".join(kept).strip()
@@ -289,6 +276,24 @@ class LocalChatbot:
         kept = [s for s in sents if not pat.search(s)]
         out = " ".join(kept).strip()
         return out or text
+
+    # ========= Prompt de sistema =========
+
+    def _create_system_prompt(self) -> str:
+        # Reglas sin ejemplos incrustados
+        prompt = (
+            f"Eres {self.persona_name} chateando por WhatsApp. Hablas SIEMPRE en español chileno.\n\n"
+            "REGLAS DURAS (incumplir = respuesta incorrecta):\n"
+            "- Natural y preciso. Si no sabes, di: “no cacho / no sé”.\n"
+            "- No inventes estados/acciones (llamadas, correos, adjuntos, estar offline). No ofrezcas llamarme ni pedir números.\n"
+            "- Evita regionalismos ajenos a tu estilo (p.ej., “chido”, “wey”, “vale”, “tío”, “che”).\n"
+            "- No menciones “contexto”, “posibles respuestas” ni analices la conversación.\n"
+            "- No digas que eres un modelo/IA. Eres " + self.persona_name + ".\n"
+            "- Nunca reveles ni cites lo que venga entre <privado>…</privado>.\n"
+            "- Si el usuario pide explicación o código, puedes extenderte en párrafos claros.\n"
+            f"- Emojis de tu estilo: {self.style_emojis} (con moderación).\n"
+        )
+        return prompt
 
     # ========= Detección de "modo" (corto/largo) =========
 
@@ -315,7 +320,7 @@ class LocalChatbot:
         if len(msg) > 120 or any(k in msg for k in long_triggers):
             return "long"
 
-        # Por defecto (desde config)
+        # Por defecto:
         return self.default_mode
 
     # ========= Guard de matemáticas básicas =========
@@ -377,8 +382,8 @@ class LocalChatbot:
             return False
         if _GENERAL_Q_PAT.search(low):                       # “qué es”, “quién fue”… (genérico)
             return False
-        # Señal lexical mínima para “traer del chat” (desde config)
-        return self._lexical_signal(msg) >= self.cfg.rag.lexical_signal_threshold
+        # Señal lexical mínima para “traer del chat”
+        return self._lexical_signal(msg) >= 1.2
 
     # ========= Gating de RAG + recuperación robusta =========
 
@@ -398,10 +403,10 @@ class LocalChatbot:
             self.corpus_vecs,
             sparse_index=self.sparse_index,
             k=5,
-            alpha=self.cfg.rag.alpha,         # más alto = más peso a embeddings; más bajo = más peso lexical
-            fetch_k=self.cfg.rag.fetch_k,     # candidatos amplios para que MMR funcione bien
-            use_multiquery=(len(user_message) > self.cfg.rag.multiquery_min_chars),
-            use_mmr=self.cfg.rag.use_mmr,
+            alpha=0.6,         # más alto = más peso a embeddings; más bajo = más peso lexical
+            fetch_k=32,        # candidatos amplios para que MMR funcione bien
+            use_multiquery=(len(user_message) > 80),  # sin multiquery para turnos cortos
+            use_mmr=True,
             use_llm_rerank=False,
         )
 
@@ -410,9 +415,9 @@ class LocalChatbot:
 
         # 2) 'Gating' por similitud densa del MEJOR candidato (umbral estricto)
         try:
-            qv = ollama.embeddings(model=self.cfg.model.embed_model, input=user_message)["embedding"]
+            qv = ollama.embeddings(model=EMBED_MODEL, input=user_message)["embedding"]
         except TypeError:
-            qv = ollama.embeddings(model=self.cfg.model.embed_model, prompt=user_message)["embedding"]
+            qv = ollama.embeddings(model=EMBED_MODEL, prompt=user_message)["embedding"]
         qv = np.array(qv, dtype=np.float32)
         qv = qv / (np.linalg.norm(qv) + 1e-9)
 
@@ -421,7 +426,7 @@ class LocalChatbot:
             for idx in self.text_to_indices.get(txt, []):
                 best_sim = max(best_sim, float(self.corpus_vecs[idx] @ qv))
 
-        if best_sim < self.cfg.rag.gating_dense_sim_threshold:
+        if best_sim < 0.60:
             return ""  # si nada es suficientemente parecido, no metas RAG (evita ruido)
 
         # 3) Contexto comprimido
@@ -444,13 +449,52 @@ class LocalChatbot:
         # 2) Contexto privado (gating de RAG)
         private_ctx = self._build_private_context(user_message)
 
-        # 3) Instrucción según modo (enfasis en “solo responde a la consulta”) desde prompts.py
-        instr = make_instruction(mode, self.persona_name, user_message, private_ctx)
+        # 3) Instrucción según modo (enfasis en “solo responde a la consulta”)
+        if mode == "short":
+            instr = (
+                f"{private_ctx}"
+                f"Responde SOLO a la consulta. No agregues saludos ni información no solicitada. "
+                f"Habla como {self.persona_name} (es-CL), natural y breve.\n"
+                f"{user_message}"
+            )
+            opts = {
+                "seed": 7,
+                "temperature": 0.15,
+                "top_p": 0.85,
+                "repeat_penalty": 1.15,
+                "num_predict": 96,      # tope duro → respuestas cortas
+                "num_ctx": 4096,
+                "stop": [
+                    "Usuario:", "User:", "EJEMPLOS", "Ejemplos",
+                    "En cuanto a las conversaciones",
+                    "Posibles respuestas", "Possible responses",
+                    "¿Cómo estás", "como estas", "¿cómo estás", "Como estas",
+                    "Disculpa por", "perdón por", "Perdón por", "Espero que estés bien",
+                ],
+            }
+        else:
+            instr = (
+                f"{private_ctx}"
+                f"Responde SOLO a la consulta con claridad (tipo ChatGPT) y sin divagar. "
+                f"No agregues saludos ni asuntos personales si el usuario no los pidió. "
+                f"Habla como {self.persona_name} (es-CL).\n"
+                f"{user_message}"
+            )
+            opts = {
+                "seed": 7,
+                "temperature": 0.20,
+                "top_p": 0.90,
+                "repeat_penalty": 1.10,
+                "num_predict": 512,     # más largo si se pidió
+                "num_ctx": 4096,
+                "stop": [
+                    "Usuario:", "User:", "EJEMPLOS", "Ejemplos",
+                    "¿Cómo estás", "como estas", "¿cómo estás", "Como estas",
+                    "Disculpa por", "perdón por", "Perdón por", "Espero que estés bien",
+                ],
+            }
 
-        # 4) Opciones de generación centralizadas (bot/config.py)
-        opts = self.cfg.gen.short if mode == "short" else self.cfg.gen.long
-
-        # 5) Mensajes: system + fewshot + historial + turno actual
+        # 4) Mensajes: system + fewshot + historial + turno actual
         messages = [
             {"role": "system", "content": self.system_prompt},
             *self.fewshot_messages,            # ejemplos como diálogo (no en el prompt)
@@ -458,14 +502,14 @@ class LocalChatbot:
             {"role": "user", "content": instr},
         ]
 
-        # 6) Llamada al modelo
+        # 5) Llamada al modelo
         resp = ollama.chat(model=self.model_name, messages=messages, options=opts)
         out = resp["message"]["content"]
 
-        # 7) Post-proceso (filtros de rótulos, fáticos, logística, etc.)
+        # 6) Post-proceso (filtros de rótulos, fáticos, logística, etc.)
         out = self._postprocess(out, mode, user_message)
 
-        # 8) Historial
+        # 7) Historial
         self._update_history(user_message, out)
         return out
 
