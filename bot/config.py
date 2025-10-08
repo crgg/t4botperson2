@@ -1,6 +1,6 @@
 # bot/config.py
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional 
 from rag.embed import EMBED_MODEL  # ya lo usas en tu proyecto
 
 @dataclass
@@ -48,10 +48,19 @@ class RAGConfig:
     alpha: float = 0.55               # peso denso vs. léxico (retrieve_robust)
     fetch_k: int = 32                  # candidatos para MMR
     use_mmr: bool = True
-    gating_dense_sim_threshold: float = 0.68
-    lexical_signal_threshold: float = 1.60
+    gating_dense_sim_threshold: float = 0.72
+    lexical_signal_threshold: float = 1.2
     multiquery_min_chars: int = 120     # usar multiquery si la consulta es más larga que esto
     top_emojis_k: int = 8              # para estilo
+
+
+@dataclass
+class MediaConfig:
+    media_dir: str = "media"         # carpeta con .jpg/.mp4
+    vision_model: Optional[str] = "llama3.2-vision"  # o "llava"
+    frame_stride_sec: int = 8
+    max_frames: int = 6
+    use_images_in_chat: bool = True  # adjuntar imágenes si el modelo lo soporta
 
 @dataclass
 class StyleConfig:
@@ -87,6 +96,7 @@ class ChatbotConfig:
     gen: GenerationOptions = field(default_factory=GenerationOptions)
     rag: RAGConfig = field(default_factory=RAGConfig)
     style: StyleConfig = field(default_factory=StyleConfig)
+    media: MediaConfig = field(default_factory=MediaConfig)
 
 # Helper para construir la config con overrides simples
 def build_config(

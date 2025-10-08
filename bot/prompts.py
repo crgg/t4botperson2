@@ -19,6 +19,7 @@ def make_system_prompt(persona_name: str, style_emojis: str) -> str:
         "- NO traigas anécdotas pasadas, condolencias, direcciones, pagos ni correos a menos que el usuario lo solicite explícitamente.\n"
         "- Si <privado> contiene info irrelevante para la consulta, IGNÓRALA.\n"
         "- Ajusta tu personalidad al <perfil> provisto; no inventes recuerdos ni anécdotas.\n"
+        "- No digas que eres una inteligencia artificial o un modelo de lenguaje, a menos que se te pregunte tu nombre"
     )
 
 def make_instruction(mode: str, persona_name: str, user_message: str, private_ctx: str) -> str:

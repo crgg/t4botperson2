@@ -65,7 +65,20 @@ def run_cli():
 
     print(f"\nInicializando chatbot con {modelo}...")
     try:
-        chatbot = LocalChatbot(messages_file, modelo)
+        # justo donde creas el chatbot:
+        chatbot = LocalChatbot(
+            messages_file,
+            modelo,
+            overrides={
+                "media": {
+                    "media_dir": "media",        # carpeta con .jpg/.png/.mp4
+                    "vision_model": None,        # None = sin caption por visión (usa OCR/Whisper)
+                    "frame_stride_sec": 8,
+                    "max_frames": 6,
+                    "use_images_in_chat": False  # no adjuntamos imágenes por turno
+                }
+            }
+        )
         print("\n╔══════════════════════════════════════════════════╗")
         print("║              CHAT INICIADO                       ║")
         print("╚══════════════════════════════════════════════════╝")
