@@ -222,3 +222,24 @@ mensajes_procesados.json
 rag_sparse.json 
 rag_texts.json 
 rag_vecs.npy 
+
+# Media
+
+# Imágenes
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.bmp
+*.gif
+
+# Videos
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Json y txt
+*.json 
+*.txt 
