@@ -240,6 +240,12 @@ rag_vecs.npy
 *.mkv
 *.webm
 
-# Json y txt
-*.json 
-*.txt 
+# Subtítulos / data tabular
+*.srt
+*.tsv
+*.vtt
+
+# JSON y TXT (pero NO ignores el requirements.txt)
+*.json
+*.txt
+!requirements.txt

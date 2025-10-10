@@ -1,0 +1,11 @@
+# requirements.txt — dependencias principales
+# Proyecto: Chatbot local (RAG + Ollama)
+# Nota: también necesitas instalar en el sistema: tesseract-ocr y ffmpeg
+
+ollama
+numpy
+pillow
+pytesseract
+
+# Opcional: soporte de transcripción por Whisper (vía CLI o Python)
+openai-whisper
