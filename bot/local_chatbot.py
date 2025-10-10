@@ -19,6 +19,9 @@ from bot.services.postprocess import PostProcessor
 from bot.services.fewshot_builder import pair_examples, build_fewshot_messages
 from bot.services.rag_context import RagContextBuilder
 
+# Persona Card / Memoria
+from bot.services.persona_card import recall_memory, PersonaMemory
+
 # Import opcional del módulo de media
 try:
     from media.ingest import ingest_media_dir, save_media_index
@@ -35,10 +38,25 @@ def _safe_get(obj, key, default=None):
 
 
 class LocalChatbot:
-    def __init__(self, messages_file: str, model_name: str = "mistral", overrides: dict | None = None):
+    def __init__(
+        self,
+        messages_file: str,
+        model_name: str = "mistral",
+        overrides: dict | None = None,
+        persona_pinned: str | None = None,           # bloque anclado [PERSONA] para el prompt
+        persona_memory: PersonaMemory | None = None  # memoria estructurada para “Sí, recuerdo…”
+    ):
         self.cfg: ChatbotConfig = build_config(model_name=model_name, overrides=overrides)
         self.messages_file = messages_file
         self.conversation_history: List[Dict] = []
+
+        # Persona (ancla + memoria)
+        self.persona_pinned = persona_pinned
+        self.persona_memory = persona_memory
+
+        # Cooldown para no abusar de “Sí, recuerdo…”
+        self._last_recall_turn = -999
+        self._recall_cooldown = 10  # no repetir hasta 3 turnos después
 
         # Datos base (txt de WhatsApp ya procesado)
         self.training_messages = load_messages(messages_file)
@@ -171,8 +189,13 @@ class LocalChatbot:
             multiquery_min_chars=self.cfg.rag.multiquery_min_chars,
         )
 
-        # Prompt sistema
-        self.system_prompt = make_system_prompt(self.persona_name, self.style_emojis)
+        # Prompt sistema (anclar Persona Card si viene)
+        base_system = make_system_prompt(self.persona_name, self.style_emojis)
+        if self.persona_pinned:
+            # Ancla la identidad/tono al inicio del prompt del modelo
+            self.system_prompt = f"{self.persona_pinned}\n{base_system}"
+        else:
+            self.system_prompt = base_system
 
     # --- API pública ---
     def chat(self, user_message: str) -> str:
@@ -184,8 +207,11 @@ class LocalChatbot:
         mode = self.mode.detect(user_message)
 
         is_short_greet = len(user_message.strip()) < 40 and self._user_greeted(user_message)
-        private_ctx = self.rag.build_private_context(user_message) if \
-            self.rag.should_use_rag(user_message, is_math=False, is_short_greet=is_short_greet) else ""
+
+        # Fuerza RAG si la pregunta es de identidad/ubicación/empresa (evita alucinaciones tipo "soy argentino")
+        force_identity = self._force_identity_lookup(user_message)
+        use_rag = self.rag.should_use_rag(user_message, is_math=False, is_short_greet=is_short_greet) or force_identity
+        private_ctx = self.rag.build_private_context(user_message) if use_rag else ""
 
         instr = make_instruction(mode, self.persona_name, user_message, private_ctx)
         opts = self.cfg.gen.short if mode == "short" else self.cfg.gen.long
@@ -196,6 +222,14 @@ class LocalChatbot:
                     {"role": "user", "content": instr}]
         raw = self.ollama.chat(messages, options=opts)
 
+        # Efecto memoria: SOLO si el usuario lo pide explícitamente (lo controla recall_memory)
+        if self.persona_memory:
+            mem_hint = recall_memory(user_message, self.persona_memory)
+            turn = len(self.conversation_history)
+            if mem_hint and not self._starts_with_recall(raw) and (turn - self._last_recall_turn >= self._recall_cooldown):
+                raw = f"{mem_hint}\n\n{raw}"
+                self._last_recall_turn = turn
+
         out = self.post.run(raw, mode, user_message)
         update_history(self.conversation_history, user_message, out)
         return out
@@ -205,3 +239,19 @@ class LocalChatbot:
 
     def _user_greeted(self, s: str) -> bool:
         return self.post._user_greeted(s)
+
+    def _force_identity_lookup(self, s: str) -> bool:
+        """Dispara RAG para preguntas típicas de identidad/ubicación/empresa (no dispara 'sí, recuerdo')."""
+        q = s.lower()
+        triggers = [
+            "de donde", "de dónde", "donde vives", "dónde vives",
+            "ubicacion", "ubicación", "ciudad", "país", "pais",
+            "de que ciudad", "de qué ciudad", "desde donde", "desde dónde",
+            "empresa", "trabajas", "suncast",
+            "de donde me escribes", "desde donde me escribes",
+        ]
+        return any(t in q for t in triggers)
+
+    def _starts_with_recall(self, text: str) -> bool:
+        """Detecta si la respuesta ya comienza con 'sí/si, recuerdo' (con o sin tilde)."""
+        return bool(re.match(r"^(sí|si)\\s*,?\\s*recuerdo", text.strip(), flags=re.IGNORECASE))

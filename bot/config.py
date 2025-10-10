@@ -10,7 +10,7 @@ class GenerationOptions:
     """
     short: Dict = field(default_factory=lambda: {
         "seed": 7,                 # Semilla de aleatoriedad. Mismo seed ⇒ respuestas más reproducibles.
-        "temperature": 0.1,       # Aleatoriedad global. Más bajo = más determinista (ideal para WhatsApp corto).
+        "temperature": 0.25,       # Aleatoriedad global. Más bajo = más determinista (ideal para WhatsApp corto).
         "top_p": 0.8,              # Nucleus sampling: recorta a los tokens que acumulan el 80% de prob.
         "repeat_penalty": 1.35,    # Penaliza repeticiones (eco). Más alto = menos repetición.
         "repeat_last_n": 96,      # Ventana (en tokens) sobre la que se calcula la penalización por repetición.
@@ -27,11 +27,11 @@ class GenerationOptions:
 
     long: Dict = field(default_factory=lambda: {
         "seed": 7,                 # Igual que arriba: reproducibilidad.
-        "temperature": 0.18,       # Un poco más libre que en short para explicaciones más naturales.
-        "top_p": 0.85,             # Nucleus sampling algo más amplio (más variedad que en short).
+        "temperature": 0.35,       # Un poco más libre que en short para explicaciones más naturales.
+        "top_p": 0.95,             # Nucleus sampling algo más amplio (más variedad que en short).
         "repeat_penalty": 1.40,    # Menor penalización para no “cortar” fluidez en respuestas largas.
-        "repeat_last_n": 96,      # Misma ventana de memoria para controlar repeticiones.
-        "num_predict": 480,        # Límite mayor de tokens de salida (explicaciones tipo ChatGPT).
+        "repeat_last_n": 128,      # Misma ventana de memoria para controlar repeticiones.
+        "num_predict": 640,        # Límite mayor de tokens de salida (explicaciones tipo ChatGPT).
         "num_ctx": 4096,           # Contexto total disponible para el modelo.
         "stop": [                  # Mismas reglas de corte para evitar frases de call-center/saludos no pedidos.
             "Usuario:", "User:", "EJEMPLOS", "Ejemplos",
@@ -45,21 +45,29 @@ class RAGConfig:
     """
     Umbrales y parámetros de recuperación (impactan precisión/ruido).
     """
-    alpha: float = 0.55               # peso denso vs. léxico (retrieve_robust)
-    fetch_k: int = 32                  # candidatos para MMR
+    alpha: float = 0.62              # peso denso vs. léxico (retrieve_robust)
+    fetch_k: int = 64                # candidatos para MMR
     use_mmr: bool = True
-    gating_dense_sim_threshold: float = 0.8
-    lexical_signal_threshold: float = 1.3
-    multiquery_min_chars: int = 120     # usar multiquery si la consulta es más larga que esto
+    mmr_lambda: float = 0.4
+    k: int = 10
+    gating_dense_sim_threshold: float = 0.65
+    lexical_signal_threshold: float = 0.8
+    multiquery_min_chars: int = 80     # usar multiquery si la consulta es más larga que esto
+    source_boosts: Dict[str, float] = field( # tipo + default_factory
+        default_factory=lambda: {
+            "_chat": 3.0,
+            "media": 2.0,
+            "docs": 1.0,
+        }
+    )
     top_emojis_k: int = 8              # para estilo
-
 
 @dataclass
 class MediaConfig:
     media_dir: str = "media"         # carpeta con .jpg/.mp4
     vision_model: Optional[str] = "llama3.2-vision"  # o "llava"
-    frame_stride_sec: int = 8
-    max_frames: int = 6
+    frame_stride_sec: int = 6
+    max_frames: int = 8
     use_images_in_chat: bool = True  # adjuntar imágenes si el modelo lo soporta
 
 @dataclass

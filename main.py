@@ -6,6 +6,13 @@ from chatio.whatsapp import (
     WhatsAppParser,
 )
 
+# ✨ Persona Card / Memoria
+from bot.services.persona_card import (
+    build_persona_card,
+    compose_pinned,
+    recall_memory,
+)
+
 def run_cli():
     print("╔══════════════════════════════════════════════════╗")
     print("║  Sistema de Chat Personalizado LOCAL            ║")
@@ -33,6 +40,10 @@ def run_cli():
         print(f"  {i}. {name} ({cnt} msgs)")
 
     target_name = input("\nEscribe el nombre EXACTO a clonar (como aparece arriba): ").strip()
+    if not target_name:
+        print("⚠ No ingresaste un nombre.")
+        return
+
     parser = WhatsAppParser()
     messages = parser.parse_chat(target_name, content=raw_text)
     if not messages:
@@ -49,8 +60,23 @@ def run_cli():
         for word, count in stats['top_words'][:5]:
             print(f"    - {word}: {count} veces")
 
+    # Exporta datasets
     parser.export_for_training(messages_file)
     parser.export_all("conversacion_completa.json")
+
+    # ===== Persona Card & Memoria para el target elegido =====
+    try:
+        persona_text, memory = build_persona_card(
+            "conversacion_completa.json",
+            target_name=target_name,
+            memory_dir="memory",
+            save=True,  # guarda memory/<slug>.json
+        )
+        pinned_block = compose_pinned(persona_text)
+        print("\n✓ Persona Card generada para:", target_name)
+    except Exception as e:
+        print(f"\n⚠ No se pudo construir la Persona Card: {e}")
+        persona_text, memory, pinned_block = None, None, None
 
     print("\n" + "="*50)
     print("\nPASO 2: Iniciando chatbot local...\n")
@@ -65,20 +91,42 @@ def run_cli():
 
     print(f"\nInicializando chatbot con {modelo}...")
     try:
-        # justo donde creas el chatbot:
-        chatbot = LocalChatbot(
-            messages_file,
-            modelo,
-            overrides={
-                "media": {
-                    "media_dir": "media",        # carpeta con .jpg/.png/.mp4
-                    "vision_model": None,        # None = sin caption por visión (usa OCR/Whisper)
-                    "frame_stride_sec": 8,
-                    "max_frames": 6,
-                    "use_images_in_chat": False  # no adjuntamos imágenes por turno
-                }
+        # Overrides recomendados (puedes ajustar a tu gusto)
+        overrides = {
+            "media": {
+                "media_dir": "media",        # carpeta con .jpg/.png/.mp4
+                "vision_model": None,        # None = sin caption por visión (usa OCR/Whisper)
+                "frame_stride_sec": 8,
+                "max_frames": 6,
+                "use_images_in_chat": False  # no adjuntamos imágenes por turno
+            },
+            # Opcional: mejorar recall para preguntas cortas
+            "rag": {
+                "multiquery_min_chars": 0,
+                "fetch_k": 96,
+                "k": 12
             }
-        )
+        }
+
+        # Intento 1: pasar Persona Card/Memoria si tu LocalChatbot ya soporta estos kwargs
+        use_postprocess_memory = True
+        try:
+            if pinned_block or memory:
+                chatbot = LocalChatbot(
+                    messages_file,
+                    modelo,
+                    overrides=overrides,
+                    persona_pinned=pinned_block,  # si tu LocalChatbot lo soporta
+                    persona_memory=memory         # si tu LocalChatbot lo soporta
+                )
+                use_postprocess_memory = False
+            else:
+                chatbot = LocalChatbot(messages_file, modelo, overrides=overrides)
+        except TypeError:
+            # Tu LocalChatbot aún no acepta persona_pinned/persona_memory
+            chatbot = LocalChatbot(messages_file, modelo, overrides=overrides)
+            use_postprocess_memory = True
+
         print("\n╔══════════════════════════════════════════════════╗")
         print("║              CHAT INICIADO                       ║")
         print("╚══════════════════════════════════════════════════╝")
@@ -102,7 +150,15 @@ def run_cli():
                 continue
 
             print("\n\033[1;32mRespuesta:\033[0m ", end="", flush=True)
-            print(chatbot.chat(user_input))
+            raw_answer = chatbot.chat(user_input)
+
+            # Fallback: efecto “memoria” sin tocar LocalChatbot
+            if use_postprocess_memory and memory:
+                recall_line = recall_memory(user_input, memory)
+                if recall_line and not raw_answer.lower().startswith("sí, recuerdo"):
+                    raw_answer = f"{recall_line}\n\n{raw_answer}"
+
+            print(raw_answer)
 
     except Exception as e:
         print(f"\n❌ Error: {e}")
