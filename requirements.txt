@@ -1,11 +1,38 @@
-# requirements.txt — dependencias principales
-# Proyecto: Chatbot local (RAG + Ollama)
-# Nota: también necesitas instalar en el sistema: tesseract-ocr y ffmpeg
+# T4ever Backend API - Requirements (Python 3.13 Compatible)
+# ============================================================
 
-ollama
-numpy
-pillow
-pytesseract
+# Core API Framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.2
+pydantic-settings==2.6.1
 
-# Opcional: soporte de transcripción por Whisper (vía CLI o Python)
-openai-whisper
+# Chatbot & AI
+ollama==0.4.4
+
+# Data Processing
+numpy==2.1.3
+pandas==2.2.3
+
+# Image/Video Processing (versiones compatibles con Python 3.13)
+pillow==11.0.0
+pytesseract==0.3.13
+
+# Async & Concurrency
+aiofiles==24.1.0
+httpx==0.27.2
+
+# Security & Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.17
+
+# Utils
+python-dotenv==1.0.1
+
+# Opcional: Whisper para transcripción (puede dar problemas, instalar después si necesitas)
+# openai-whisper==20231117
+
+# Opcional: Monitoring (instalar después si necesitas)
+# sentry-sdk==2.18.0
+# slowapi==0.1.9
