@@ -89,6 +89,7 @@ services:
         condition: service_started
     networks:
       - t4ever-network
+      - proxy-net
     healthcheck:
       # Asegúrate de tener curl (o cambia a wget)
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -119,7 +120,10 @@ services:
       "
     networks:
       - t4ever-network
+   
 
 networks:
   t4ever-network:
     driver: bridge
+  proxy-net:
+    external: true  

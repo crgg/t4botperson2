@@ -332,7 +332,9 @@ async def get_next_interview_question(
         "progress": 33,  # Porcentaje de completitud
         "total_questions": 3
     }
-
+@app.get("/health")
+def health():
+    return {"status": "ok", "message": "API is running"}
 # ========================================
 # MAIN: Ejecutar servidor
 # ========================================
