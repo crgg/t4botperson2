@@ -64,8 +64,8 @@ services:
     container_name: t4ever-api
     restart: unless-stopped
     # Si usas Nginx Proxy Manager: solo expose, no ports
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"
     volumes:
       - ./data/legacies:/app/legacies
       - ./logs:/app/logs
