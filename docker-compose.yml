@@ -1,0 +1,129 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # OLLAMA - Modelo LLM local (solo interno)
+  # ============================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: t4ever-ollama
+    restart: unless-stopped
+    # SIN ports: solo interno
+    volumes:
+      - ./data/ollama:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    networks:
+      - t4ever-network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # REDIS - Cache / cola / rate limit
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: t4ever-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./data/redis:/data
+    networks:
+      - t4ever-network
+
+  # ============================================
+  # POSTGRES - DB principal T4ever
+  # (puede ser compartida por más servicios)
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: t4ever-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=t4ever
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-cambia_esto_en_prod}
+      - POSTGRES_DB=t4ever_db
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - t4ever-network
+    # Si solo lo usa Docker, NO expongas el puerto
+    # ports:
+    #   - "5432:5432"
+
+  # ============================================
+  # API - FastAPI backend
+  # ============================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: t4ever-api
+    restart: unless-stopped
+    # Si usas Nginx Proxy Manager: solo expose, no ports
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/legacies:/app/legacies
+      - ./logs:/app/logs
+      - ./bot:/app/bot
+      - ./rag:/app/rag
+      - ./chatio:/app/chatio
+      - ./media:/app/media
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - API_KEY_SECRET=${API_KEY_SECRET:-t4ever_change_me_in_production}
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+psycopg2://t4ever:${POSTGRES_PASSWORD:-cambia_esto_en_prod}@postgres:5432/t4ever_db
+    depends_on:
+      ollama:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_started
+    networks:
+      - t4ever-network
+      - proxy-net
+    healthcheck:
+      # Asegúrate de tener curl (o cambia a wget)
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============================================
+  # BACKUP - Solo legacies por ahora
+  # ============================================
+  backup:
+    image: alpine:latest
+    container_name: t4ever-backup
+    restart: unless-stopped
+    volumes:
+      - ./data/legacies:/data/legacies:ro
+      - ./backups:/backups
+    command: >
+      sh -c "
+        while true; do
+          echo '[Backup] Iniciando backup en $(date)'
+          tar -czf /backups/legacies-$(date +%Y%m%d-%H%M%S).tar.gz -C /data legacies;
+          find /backups -name 'legacies-*.tar.gz' -mtime +7 -delete;
+          echo '[Backup] Backup completado. Próximo en 24h';
+          sleep 86400;
+        done
+      "
+    networks:
+      - t4ever-network
+   
+
+networks:
+  t4ever-network:
+    driver: bridge
+  proxy-net:
+    external: true  
